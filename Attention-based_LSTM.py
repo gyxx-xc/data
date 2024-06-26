@@ -1,6 +1,9 @@
 import torch
 from torch.utils.data import Dataset, DataLoader
 
+import torch.nn as nn
+import torch.nn.functional as F
+
 class SuicideRiskDataset(Dataset):
     def __init__(self, data, labels, vocab, max_length):
         self.data = data
@@ -18,14 +21,6 @@ class SuicideRiskDataset(Dataset):
         input_ids = torch.tensor(input_ids)
         label = torch.tensor(label)
         return input_ids, label
-
-# 使用这个Dataset类加载数据
-#train_dataset = SuicideRiskDataset(train_data, train_labels, vocab, max_length)
-train_dataloader = DataLoader(train_dataset, batch_size=32, shuffle=True)
-
-
-import torch.nn as nn
-
 
 class AdditiveAttentionLSTM(nn.Module):
     def __init__(self, vocab_size, embedding_dim, hidden_size, num_classes):
@@ -45,6 +40,25 @@ class AdditiveAttentionLSTM(nn.Module):
         output = self.fc(output)
         return output
 
+def evaluate_model(model, test_dataloader):
+    model.eval()
+    y_true = []
+    y_pred = []
+    with torch.no_grad():
+        for inputs, labels in test_dataloader:
+            inputs, labels = inputs.to(device), labels.to(device)
+            outputs = model(inputs)
+            _, predicted = torch.max(outputs, 1)
+            y_true.extend(labels.cpu().numpy())
+            y_pred.extend(predicted.cpu().numpy())
+    f1 = F.f1_score(torch.tensor(y_true), torch.tensor(y_pred), average='weighted')
+    return f1.item()
+
+# -------------------- program start here --------------------
+
+# 使用这个Dataset类加载数据
+# train_dataset = SuicideRiskDataset(train_data, train_labels, vocab, max_length)
+train_dataloader = DataLoader(train_dataset, batch_size=32, shuffle=True)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model = AdditiveAttentionLSTM(len(vocab), 128, 64, 4).to(device)
@@ -61,23 +75,7 @@ for epoch in range(10):
         loss.backward()
         optimizer.step()
 
-import torch.nn.functional as F
-
-def evaluate_model(model, test_dataloader):
-    model.eval()
-    y_true = []
-    y_pred = []
-    with torch.no_grad():
-        for inputs, labels in test_dataloader:
-            inputs, labels = inputs.to(device), labels.to(device)
-            outputs = model(inputs)
-            _, predicted = torch.max(outputs, 1)
-            y_true.extend(labels.cpu().numpy())
-            y_pred.extend(predicted.cpu().numpy())
-    f1 = F.f1_score(torch.tensor(y_true), torch.tensor(y_pred), average='weighted')
-    return f1.item()
-
-#test_dataset = SuicideRiskDataset(test_data, test_labels, vocab, max_length)
+# test_dataset = SuicideRiskDataset(test_data, test_labels, vocab, max_length)
 test_dataloader = DataLoader(test_dataset, batch_size=32)
 f1_score = evaluate_model(model, test_dataloader)
 print(f'Weighted F1 Score: {f1_score:.4f}')
