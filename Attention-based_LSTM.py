@@ -1,8 +1,11 @@
 import torch
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import TensorDataset, Dataset, DataLoader
 
 import torch.nn as nn
 import torch.nn.functional as F
+
+import pandas as pd
+
 
 class SuicideRiskDataset(Dataset):
     def __init__(self, data, labels, vocab, max_length):
@@ -18,6 +21,7 @@ class SuicideRiskDataset(Dataset):
         text = self.data[idx]
         label = self.labels[idx]
         input_ids = [self.vocab.get(word, self.vocab['<UNK>']) for word in text.split()][:self.max_length]
+        input_ids += [self.vocab['<PAD>']] * (self.max_length - len(input_ids))
         input_ids = torch.tensor(input_ids)
         label = torch.tensor(label)
         return input_ids, label
@@ -42,26 +46,48 @@ class AdditiveAttentionLSTM(nn.Module):
 
 def evaluate_model(model, test_dataloader):
     model.eval()
-    y_true = []
-    y_pred = []
+    total = 0
+    correct = 0
     with torch.no_grad():
         for inputs, labels in test_dataloader:
             inputs, labels = inputs.to(device), labels.to(device)
             outputs = model(inputs)
             _, predicted = torch.max(outputs, 1)
-            y_true.extend(labels.cpu().numpy())
-            y_pred.extend(predicted.cpu().numpy())
-    f1 = F.f1_score(torch.tensor(y_true), torch.tensor(y_pred), average='weighted')
-    return f1.item()
+            for i, j in zip(predicted, labels):
+                if i == j:
+                    correct += 1
+                total += 1
+    return correct/total
 
 # -------------------- program start here --------------------
 
-# 使用这个Dataset类加载数据
-# train_dataset = SuicideRiskDataset(train_data, train_labels, vocab, max_length)
+# if is debugging
+# import os
+# os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
+# os.environ['TORCH_USE_CUDA_DSA'] = '1'
+# if end
+
+data = pd.read_excel('./processed_posts.xlsx')
+
+train_data = data['cleaned_post_in_tokens'].values
+
+# may be a word embedding model is used here
+temp = ['<UNK>', '<PAD>']
+for i in train_data:
+    temp+=(i.split())
+temp = list(set(temp))
+vocab = dict(zip(temp, range(len(temp))))
+
+train_labels = data['post_risk'].tolist()
+label_vocab = {'attempt':0, 'ideation':1, 'indicator':2, 'behavior':3}
+train_labels = [label_vocab[label] for label in train_labels]
+
+train_dataset = SuicideRiskDataset(train_data, train_labels, vocab, 1024)
 train_dataloader = DataLoader(train_dataset, batch_size=32, shuffle=True)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model = AdditiveAttentionLSTM(len(vocab), 128, 64, 4).to(device)
+# device = torch.device("cpu")
+model = AdditiveAttentionLSTM(len(vocab), 128, 100, 5).to(device)
 optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 criterion = nn.CrossEntropyLoss()
 
@@ -75,8 +101,7 @@ for epoch in range(10):
         loss.backward()
         optimizer.step()
 
-# test_dataset = SuicideRiskDataset(test_data, test_labels, vocab, max_length)
+test_dataset = SuicideRiskDataset(train_data, train_labels, vocab, 1024)
 test_dataloader = DataLoader(test_dataset, batch_size=32)
 f1_score = evaluate_model(model, test_dataloader)
 print(f'Weighted F1 Score: {f1_score:.4f}')
-
