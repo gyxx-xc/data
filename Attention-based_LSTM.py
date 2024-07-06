@@ -46,8 +46,9 @@ class AdditiveAttentionLSTM(nn.Module):
 
 def evaluate_model(model, test_dataloader):
     model.eval()
-    total = 0
-    correct = 0
+    fp = [0, 0, 0, 0]
+    fn = [0, 0, 0, 0]
+    tp = [0, 0, 0, 0]
     with torch.no_grad():
         for inputs, labels in test_dataloader:
             inputs, labels = inputs.to(device), labels.to(device)
@@ -55,9 +56,13 @@ def evaluate_model(model, test_dataloader):
             _, predicted = torch.max(outputs, 1)
             for i, j in zip(predicted, labels):
                 if i == j:
-                    correct += 1
-                total += 1
-    return correct/total
+                    tp[i] += 1
+                else:
+                    fp[i] += 1
+                    fn[j] += 1
+    f1 = [2 * tp[i] / (2 * tp[i] + fp[i] + fn[i]) for i in range(4)]
+    print(f1)
+    return sum(f1) / 4
 
 # -------------------- program start here --------------------
 
